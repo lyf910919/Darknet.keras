@@ -33,10 +33,10 @@ from os.path import isfile, join
 def SimpleNet(darkNet,yoloNet):
     '''
     Args:
-      darkNet: dark net weights, to initialize the weights of the first 13 layers
+      darkNet: dark net weights, to initialize the weights of the first 25 layers
       yoloNet: yolo net, only need the structure parameters here
     Returns:
-      model: A keras model which defines Tiny Yolo Net, with its first 13 layers' weights initialized by darknet
+      model: A keras model which defines Yolo Net, with its first 25 layers' weights initialized by darknet
     '''
     model = Sequential()
 
@@ -46,8 +46,8 @@ def SimpleNet(darkNet,yoloNet):
     model.add(LeakyReLU(alpha=0.1))
     model.add(MaxPooling2D(pool_size=(2, 2)))
 
-    #initialize first 13 layers using weights of darknet
-    for i in range(3,14):
+    #initialize first 25 layers using weights of darknet
+    for i in range(3,25):
         l = darkNet.layers[i]
         if(l.type == "CONVOLUTIONAL"):
             model.add(ZeroPadding2D(padding=(l.size//2,l.size//2,)))
@@ -56,7 +56,7 @@ def SimpleNet(darkNet,yoloNet):
         elif(l.type == "MAXPOOL"):
             model.add(MaxPooling2D(pool_size=(2, 2),border_mode='valid'))
 
-    for i in range(14,yoloNet.layer_number):
+    for i in range(25,yoloNet.layer_number):
         l = yoloNet.layers[i]
         if(l.type == "CONVOLUTIONAL"):
             model.add(ZeroPadding2D(padding=(l.size//2,l.size//2,)))

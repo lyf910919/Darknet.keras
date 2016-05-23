@@ -16,23 +16,24 @@ def SimpleNet(darkNet):
     model = Sequential()
 
     #Convolution Layer 2 & Max Pooling Layer 3
-    model.add(ZeroPadding2D(padding=(1,1),input_shape=(3,224,224)))
-    model.add(Convolution2D(16, 3, 3, weights=[darkNet.layers[1].weights,darkNet.layers[1].biases],border_mode='valid',subsample=(1,1)))
+    model.add(ZeroPadding2D(padding=(1,1),input_shape=(3,448,448)))
+    model.add(Convolution2D(64, 7, 7, weights=[darkNet.layers[1].weights,darkNet.layers[1].biases],border_mode='valid',subsample=(2,2)))
     model.add(LeakyReLU(alpha=0.1))
     model.add(MaxPooling2D(pool_size=(2, 2)))
 
     #Use a for loop to replace all manually defined layers
-    for i in range(3,17):
+    for i in range(3,darkNet.layer_number):
         l = darkNet.layers[i]
         if(l.type == "CONVOLUTIONAL"):
             model.add(ZeroPadding2D(padding=(l.size//2,l.size//2,)))
             model.add(Convolution2D(l.n, l.size, l.size, weights=[l.weights,l.biases],border_mode='valid',subsample=(1,1)))
             model.add(LeakyReLU(alpha=0.1))
         elif(l.type == "MAXPOOL"):
-            if(i == 12):
-                model.add(MaxPooling2D(pool_size=(2, 2),border_mode='custom'))
-            else:
-                model.add(MaxPooling2D(pool_size=(2, 2),border_mode='valid'))
+            model.add(MaxPooling2D(pool_size=(2, 2),border_mode='valid'))
+            # if(i == 12):
+            #     model.add(MaxPooling2D(pool_size=(2, 2),border_mode='custom'))
+            # else:
+            #     model.add(MaxPooling2D(pool_size=(2, 2),border_mode='valid'))
         elif(l.type == "AVGPOOL"):
             model.add(AveragePooling2D(pool_size=(4,4),strides=(4,4)))
             model.add(Flatten())
@@ -41,6 +42,8 @@ def SimpleNet(darkNet):
             model.add(LeakyReLU(alpha=0.1))
         elif(l.type == "SOFTMAX"):
             model.add(Activation('softmax'))
+        elif(l.type == "DROPOUT"):
+            model.add(Dropout(0.5))
         else:
             print "Error: Unknown Layer Type",l.type
     return model
@@ -51,10 +54,10 @@ def get_activations(model, layer, X_batch):
     return activations
 
 #image = readImg(os.path.join(os.getcwd(),'images/dog.file'))
-image = crop(os.path.join(os.getcwd(),'images/eagle.jpg'))
-image = np.expand_dims(image, axis=0)
+# image = crop(os.path.join(os.getcwd(),'images/eagle.jpg'))
+# image = np.expand_dims(image, axis=0)
 
-darkNet = ReadDarkNetWeights(os.path.join(os.getcwd(),'weights/darknet.weights'))
+darkNet = ReadDarkNetWeights('/home/lyf/develop/traffic_light/backup/yolo-tl_82000.weights')
 #reshape weights in every layer
 for i in range(darkNet.layer_number):
     l = darkNet.layers[i]
