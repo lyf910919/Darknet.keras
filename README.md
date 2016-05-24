@@ -1,4 +1,15 @@
 # Darknet.keras
+This is a modified version of Darknet.keras, with some bugs fixed and YOLO Model support.
+
+###Contributions
+1. Modified DarkNet.py to load YOLO Model(rather than YOLO Tiny Model) weights files.
+2. Modified RunTinyYOLO.py, which had a few bugs, to reproduce YOLO detection results in darknet.
+
+###TODO
+1. Building network structure by hand is tedious, should write code to do so automatically from cfg files
+2. Implement training code
+
+###The original README
 This is a transfer from weights trained by [Darknet](http://pjreddie.com/darknet/) to [keras](http://keras.io/) with Theano backend.
 
 Currently I only finish test process for [YOLO Tiny Model](https://github.com/pjreddie/darknet/blob/master/cfg/yolo-tiny.cfg).
