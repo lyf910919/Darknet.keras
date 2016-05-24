@@ -106,14 +106,15 @@ def convert_yolo_detections(predictions,classes=1,num=2,square=True,side=11,w=44
             # print predictions.min()
             new_box.x = (predictions[box_index + 0] + col) / side * w
             new_box.y = (predictions[box_index + 1] + row) / side * h
-            new_box.h = pow(predictions[box_index + 2], 2) * w
-            new_box.w = pow(predictions[box_index + 3], 2) * h
+            new_box.w = pow(predictions[box_index + 2], 2) * w
+            new_box.h = pow(predictions[box_index + 3], 2) * h
 
             for j in range(classes):
                 class_index = i*classes
                 prob = scale*predictions[class_index+j]
                 if(prob > threshold):
                     new_box.probs[j] = prob
+                    print new_box.x, new_box.y, new_box.w, new_box.h, new_box.probs[0]
                 else:
                     new_box.probs[j] = 0
             if(only_objectness):
@@ -217,7 +218,8 @@ def draw_detections(impath,num,thresh,boxes,classes,labels,save_name):
             
 def drawRects(src, rects):
     for rect in rects:
-        cv2.rectangle(src, (rect[0]-rect[2]/2, rect[1]-rect[3]/2), (rect[2], rect[3]), (0,255,0), 2)
+        print rect
+        cv2.rectangle(src, (rect[0]-rect[2]/2, rect[1]-rect[3]/2), (rect[0]+rect[2]/2, rect[1]+rect[3]/2), (0,255,0), 2)
     cv2.imshow('src', src)
     cv2.waitKey(0)
             
@@ -322,14 +324,13 @@ def detect(model, image):
     #             layer_output.shape[2], layer_output.shape[3]))
     
     predictions = out[0]
-    print predictions
+    # print predictions
     boxes = convert_yolo_detections(predictions, \
         classes=1,num=2,square=True,side=11,w=448,h=448,threshold=0.2,only_objectness=0)
-    boxes = do_nms_sort(boxes,98)
-    rects = [map(int,[box.x, box.y, box.w, box.h]) for box in boxes]
-    # print rects
-    
-    drawRects(image, rects[:4])
+    boxes = do_nms_sort(boxes,len(boxes))
+    rects = [map(int,[box.x, box.y, box.w, box.h])+[box.probs[0]] for box in boxes if box.probs[0] > 0.2]
+    # print rects[:4]
+    drawRects(image, rects)
     # draw_detections(os.path.join(imagePath,image_name),98,0.2,boxes,20,labels,image_name)
     #draw_detections(os.path.join(os.getcwd(),'resized_images','1.jpg'),98,0.2,boxes,20,labels,image_name)
     # return get_activations(model, 17, data)[0].flatten()
