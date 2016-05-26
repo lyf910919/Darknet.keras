@@ -39,11 +39,23 @@ def getIoU(a, b):
     union = a[:,:,:,2]*a[:,:,:,3] + b[:,:,:,2]*b[:,:,:,3] - overlap
     return overlap / union
     
-def get_box_mask(a, b):
+def get_box_mask_iou(a, b):
+    '''
+    return (batch_size, grid_num, box_num, 1) tensor as mask
+    '''
     iou = getIoU(a,b)
     m = iou.max(axis=-1, keepdims=True)
     mask = T.eq(iou, m).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
     return mask
+    
+def get_box_mask_se(a,b):
+    '''
+    return (batch_size, grid_num, box_num, 1) tensor as mask
+    '''
+    se = T.pow(T.pow(a-b, 2).sum(axis=-1), .5)
+    sem = se.min(axis=-1, keepdims=True) # find the box with lowest square error
+    se_mask = T.eq(se, sem).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
+    return se_mask
 
 def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale,
   side = 11, classes = 1, objectness = 1, coords = 4, box_num = 2):
@@ -99,6 +111,10 @@ if __name__ == '__main__':
     iou = getIoU(a,b)
     m = iou.max(axis=-1, keepdims=True)
     mask = T.eq(iou, m).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
+    
+    se = T.pow(T.pow(a-b, 2).sum(axis=-1), .5)
+    sem = se.min(axis=-1, keepdims=True)
+    se_mask = T.eq(se, sem).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
     # a_, b_ = get_bound(a), get_bound(b)
     # xmin = get_max(a_, b_, 0)
     # xmax = get_min(a_, b_, 2)
@@ -108,7 +124,7 @@ if __name__ == '__main__':
     # overlap = getOverlap(a, b)
     # union = a[:,:,:,2]*a[:,:,:,3] + b[:,:,:,2]*b[:,:,:,3] - overlap
     # return overlap / union
-    f = theano.function([a,b], [get_box_mask(a,b)], on_unused_input='ignore')
+    f = theano.function([a,b], [se_mask], on_unused_input='ignore')
     a_val = np.array([[[[5,5,10,10], [6,6,12,12]], [[0,0,0,0], [0,0,0,0]]], [[[5,5,10,10], [6,6,12,12]], [[0,0,0,0], [0,0,0,0]]]])
     b_val = np.array([[[[10,10,20,20], [10,10,20,20]], [[1,1,2,2], [1,1,2,2]]], [[[10,10,20,20], [10,10,20,20]], [[1,1,2,2], [1,1,2,2]]]])
     print a_val.shape, b_val.shape
