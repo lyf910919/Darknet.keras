@@ -56,17 +56,28 @@ def get_box_mask_se(a,b):
     sem = se.min(axis=-1, keepdims=True) # find the box with lowest square error
     se_mask = T.eq(se, sem).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
     return se_mask
+    
+def get_box_mask_final(a, b):
+    '''
+    input: pred_box and true_box tensor of shape (batch_size, grid_num, box_num, 4)
+    output: selected box mask tensor of shape (batch_size, grid_num, box_num, 1)
+    '''
+    mask_iou = get_box_mask_iou(a, b)
+    mask_se = get_box_mask_se(a,b)
+    mask_sum = mask_iou.sum(axis=-2, keepdims=True) > 1
+    mask_final = mask_iou * (1 - mask_sum) + mask_se * mask_sum
+    return mask_final
 
-def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale,
+def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale, coord_scale,
   side = 11, classes = 1, objectness = 1, coords = 4, box_num = 2):
     def custom_loss(y_true,y_pred):
         grid_num = side * side
         label_num = objectness + classes + coords
-        
+        ###################################################################
         # reshape y_true
         grid_labels = y_true[:, :grid_num*label_num].reshape((batch_size,grid_num,label_num))
         # objectness
-        grid_objectness = grid_labels[:,:,0]
+        grid_objectness = grid_labels[:,:,0].reshape((batch_size, grid_num, 1))
         # print grid_objectness.shape.eval()
         # objectness * classes
         grid_classes = grid_labels[:,:,[0]*classes] * grid_labels[:,:,objectness:objectness+classes]
@@ -79,53 +90,59 @@ def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale,
         pred_objectness = y_pred[:, grid_num*classes:grid_num*(classes+box_num)]
         # get pred boxes
         pred_boxes = y_pred[:, grid_num*(classes+box_num):]
+        ###################################################################
         
-        # noobj loss
-        pred_objectness = pred_objectness.reshape((batch_size, grid_num, box_num*coords))
-        grid_objectness_mul = T.tile(grid_objectness, (1,box_num))
-        noobj_loss = noobj_scale * T.pow(pred_objectness-grid_objectness_mul, 2).sum(axis=2)
+        # noobj loss (batch_size, grid_num)
+        pred_objectness = pred_objectness.reshape((batch_size, grid_num, box_num))
+        grid_objectness_mul = grid_labels[:,:,[0]*box_num]
+        noobj_loss = noobj_scale * T.pow(pred_objectness, 2).sum(axis=2) # pred_objectness should be 0
         
-        # class loss
+        # class loss (batch_size, grid_num)
         pred_classes = pred_classes.reshape((batch_size, grid_num, classes))
-        class_loss = class_scale * T.pow(pred_classes-grid_classes, 2) * grid_classes # only calc obj classes
-        class_loss.sum(axis=2)
+        class_loss = class_scale * T.pow(pred_classes-grid_classes, 2) * grid_objectness # only calc obj classes
+        class_loss = class_loss.sum(axis=2)
         
-        # box loss
-        # get object box index
-        box_loss = theano.shared(np.zeros((batch_size,1), dtype=np.float32))
-        box_index = (grid_objectness > .5).nonzero()
-        for i in xrange(box_index[0].shape):
-            true_box = grid_boxes[box_index[0][i]][box_index[1][i]]
-            for n in xrange(box_num):
-              pred_box = pred_boxes[box_index[0][i]][box_index[1][i]][n*coords:(n+1)*coords]
-              iou = getIoU(pred_box, true_box)
-        return class_loss
+        # box loss (batch_size, grid_num)
+        # normalize x and y of box
+        grid_boxes = grid_boxes[:,:,range(coords)*box_num].reshape((batch_size, grid_num, box_num, coords))
+        grid_boxes_n = T.concatenate([grid_boxes[:,:,:,:2]/side, grid_boxes[:,:,:,2:]], axis=-1)
+        pred_boxes = pred_boxes.reshape((batch_size, grid_num, box_num, coords))
+        pred_boxes_n = T.concatenate([pred_boxes[:,:,:,:2]/side, pred_boxes[:,:,:,2:]**2], axis=-1) #w,h sqare
+        # get box mask
+        # mask_iou = get_box_mask_iou(grid_boxes_n, pred_boxes_n)
+        mask = get_box_mask_final(grid_boxes_n, pred_boxes_n)
+        # get box loss (batch_size, grid_num)
+        box_loss = coord_scale * (T.pow(pred_boxes_n-grid_boxes_n, 2) * mask)
+        box_loss = box_loss.sum(axis=-1)
+        box_loss = box_loss * grid_objectness # only calc grids that contain obj
+        box_loss = box_loss.sum(axis=-1)
+        
+        # obj loss (batch_size, grid_num)
+        mask = mask.reshape((mask.shape[0], mask.shape[1], mask.shape[2]*mask.shape[3]))
+        obj_loss = obj_scale * T.pow(grid_objectness_mul-pred_objectness, 2) * mask \
+        - noobj_scale * T.pow(pred_objectness, 2) * mask # delete the noobj loss calc before for obj boxes
+        obj_loss = obj_loss * grid_objectness # only calc grids that contain obj
+        obj_loss = obj_loss.sum(axis=2)
+        
+        return [noobj_loss, class_loss, box_loss, obj_loss]
     return custom_loss
     
 if __name__ == '__main__':
-    # loss = get_custom_loss(16,1,1,1)
-    # y_pred = T.matrix()
-    # y_true = T.matrix()
-    # a = theano.function([y_true, y_pred], [loss(y_true, y_pred)])
-    a, b = T.tensor4(), T.tensor4()
-    iou = getIoU(a,b)
-    m = iou.max(axis=-1, keepdims=True)
-    mask = T.eq(iou, m).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
+    custom_loss = get_custom_loss(2, 0.5, 1, 1, 5, side = 2, classes = 1, objectness = 1, coords = 4, box_num = 2)
+    y_true, y_pred = T.matrix(), T.matrix()
+    loss = custom_loss(y_true, y_pred)
+    # g = T.grad(loss, a)
+    f = theano.function([y_true, y_pred], [loss[0], loss[1], loss[2], loss[3]], on_unused_input='ignore')
     
-    se = T.pow(T.pow(a-b, 2).sum(axis=-1), .5)
-    sem = se.min(axis=-1, keepdims=True)
-    se_mask = T.eq(se, sem).reshape((a.shape[0], a.shape[1], a.shape[2], 1))
-    # a_, b_ = get_bound(a), get_bound(b)
-    # xmin = get_max(a_, b_, 0)
-    # xmax = get_min(a_, b_, 2)
-    # ymin = get_max(a_, b_, 1)
-    # ymax = get_min(a_, b_, 3)
-    # t = T.concatenate([T.shape_padleft(a[:,:,:,0]), T.shape_padleft(b[:,:,:,0])], axis=3)#.reshape((a.shape[0], a.shape[1], a.shape[2], 2))
-    # overlap = getOverlap(a, b)
-    # union = a[:,:,:,2]*a[:,:,:,3] + b[:,:,:,2]*b[:,:,:,3] - overlap
-    # return overlap / union
-    f = theano.function([a,b], [se_mask], on_unused_input='ignore')
-    a_val = np.array([[[[5,5,10,10], [6,6,12,12]], [[0,0,0,0], [0,0,0,0]]], [[[5,5,10,10], [6,6,12,12]], [[0,0,0,0], [0,0,0,0]]]])
-    b_val = np.array([[[[10,10,20,20], [10,10,20,20]], [[1,1,2,2], [1,1,2,2]]], [[[10,10,20,20], [10,10,20,20]], [[1,1,2,2], [1,1,2,2]]]])
-    print a_val.shape, b_val.shape
-    print f(a_val, b_val)
+    true_val = [0]*6+[1,0,5,5,10,10]+[0]*24+[1,0,1,1,2,2]+[0]*6
+    pred_val = [0,1,0,0,
+                0,1,1,1,0,0,0,0,
+                1,1,1,1, 3,3,1.72,1.72, 1,1,1.41,1.41, 5,5,2.82,2.82] + [0]*16 +\
+               [0,1,0,0,
+               0,0,0,0,0,0,1,0] + \
+               [0]*16+[1,1,1.41,1.41,1,1,1,1]+[0]*8
+    true_val = np.array(true_val).reshape((2,24))
+    pred_val = np.array(pred_val).reshape((2,44))
+    print true_val.shape, pred_val.shape
+    for r in f(true_val, pred_val):
+      print r
