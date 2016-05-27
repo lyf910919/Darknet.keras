@@ -105,9 +105,9 @@ def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale, coord_scale
         # box loss (batch_size, grid_num)
         # normalize x and y of box
         grid_boxes = grid_boxes[:,:,range(coords)*box_num].reshape((batch_size, grid_num, box_num, coords))
-        grid_boxes_n = T.concatenate([grid_boxes[:,:,:,:2]/side, grid_boxes[:,:,:,2:]], axis=-1)
+        grid_boxes_n = T.concatenate([grid_boxes[:,:,:,:2]/side, T.sqrt(grid_boxes[:,:,:,2:])], axis=-1) #w,h sqare root
         pred_boxes = pred_boxes.reshape((batch_size, grid_num, box_num, coords))
-        pred_boxes_n = T.concatenate([pred_boxes[:,:,:,:2]/side, pred_boxes[:,:,:,2:]**2], axis=-1) #w,h sqare
+        pred_boxes_n = T.concatenate([pred_boxes[:,:,:,:2]/side, pred_boxes[:,:,:,2:]], axis=-1) #w,h sqare root
         # get box mask
         # mask_iou = get_box_mask_iou(grid_boxes_n, pred_boxes_n)
         mask = get_box_mask_final(grid_boxes_n, pred_boxes_n)
@@ -123,16 +123,17 @@ def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale, coord_scale
         - noobj_scale * T.pow(pred_objectness, 2) * mask # delete the noobj loss calc before for obj boxes
         obj_loss = obj_loss * grid_objectness # only calc grids that contain obj
         obj_loss = obj_loss.sum(axis=2)
-        
-        return [noobj_loss, class_loss, box_loss, obj_loss]
+        loss = noobj_loss+class_loss+box_loss+obj_loss
+        loss = loss.sum() / batch_size # batch normalize the loss
+        return loss
     return custom_loss
     
 if __name__ == '__main__':
     custom_loss = get_custom_loss(2, 0.5, 1, 1, 5, side = 2, classes = 1, objectness = 1, coords = 4, box_num = 2)
     y_true, y_pred = T.matrix(), T.matrix()
     loss = custom_loss(y_true, y_pred)
-    # g = T.grad(loss, a)
-    f = theano.function([y_true, y_pred], [loss[0], loss[1], loss[2], loss[3]], on_unused_input='ignore')
+    g = T.grad(loss, y_pred)
+    f = theano.function([y_true, y_pred], [loss, g], on_unused_input='ignore')
     
     true_val = [0]*6+[1,0,5,5,10,10]+[0]*24+[1,0,1,1,2,2]+[0]*6
     pred_val = [0,1,0,0,

@@ -14,14 +14,16 @@ class layer:
 class convolutional_layer(layer):
     def __init__(self,size,c,n,h,w):
         layer.__init__(self,size,c,n,h,w,"CONVOLUTIONAL")
-        self.biases = np.zeros(n)
-        self.weights = np.zeros((size*size,c,n))
+        self.biases = None #np.zeros(n)
+        self.weights = None #np.zeros((size*size,c,n))
 
 class connected_layer(layer):
     def __init__(self,size,c,n,h,w,input_size,output_size):
         layer.__init__(self,size,c,n,h,w,"CONNECTED")
         self.output_size = output_size
         self.input_size = input_size
+        self.biases = None
+        self.weights = None
 
 class DarkNet:
     layers = []
@@ -74,10 +76,10 @@ class DarkNet:
         # self.layers.append(layer(0,0,0,0,0,"SOFTMAX"))
         # self.layers.append(layer(0,0,0,0,0,"COST"))
 
-def ReadDarkNetWeights(weight_path):
+def ReadDarkNetWeights(weight_path, upto):
     darkNet = DarkNet()
     type_string = "(3)float32,i4,"
-    for i in range(darkNet.layer_number):
+    for i in range(upto): #darkNet.layer_number):
         l = darkNet.layers[i]
         if(l.type == "CONVOLUTIONAL"):
             bias_number = l.n
@@ -95,7 +97,7 @@ def ReadDarkNetWeights(weight_path):
 
     count = 2
     print 'number of weight matrices in file:', len(testArray[0])
-    for i in range(0,darkNet.layer_number):
+    for i in range(upto): #darkNet.layer_number):
         l = darkNet.layers[i]
         if(l.type == "CONVOLUTIONAL" or l.type == "CONNECTED"):
             l.biases = np.asarray(testArray[0][count])

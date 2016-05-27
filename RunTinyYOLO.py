@@ -55,7 +55,10 @@ def SimpleNet(yoloNet):
             if i == 26: # modify convolution stride
                 sub = (2,2)
             model.add(ZeroPadding2D(padding=(l.size//2,l.size//2,)))
-            model.add(Convolution2D(l.n, l.size, l.size, weights=[l.weights,l.biases],border_mode='valid',subsample=sub))
+            if l.weights is None or l.biases is None:
+                model.add(Convolution2D(l.n, l.size, l.size, init='he_normal', border_mode='valid',subsample=sub))
+            else:
+                model.add(Convolution2D(l.n, l.size, l.size, weights=[l.weights,l.biases],border_mode='valid',subsample=sub))
             model.add(LeakyReLU(alpha=0.1))
             layer_cnt += 3
         elif(l.type == "MAXPOOL"):
@@ -66,7 +69,10 @@ def SimpleNet(yoloNet):
             layer_cnt += 1
         elif(l.type == "CONNECTED"):
             # print l.input_size, l.output_size, l.weights.shape, l.biases.shape
-            model.add(Dense(l.output_size, weights=[l.weights,l.biases]))
+            if l.weights is None or l.biases is None:
+                model.add(Dense(l.output_size, init='he_normal'))
+            else:
+                model.add(Dense(l.output_size, weights=[l.weights,l.biases]))
             layer_cnt += 1
         elif(l.type == "LEAKY"):
             model.add(LeakyReLU(alpha=0.1))
@@ -224,9 +230,9 @@ def drawRects(src, rects):
     cv2.waitKey(0)
             
 def loadModel(weightFile):
-    yoloNet = ReadDarkNetWeights(weightFile)
+    yoloNet = ReadDarkNetWeights(weightFile, 25)
     #reshape weights in every layer
-    for i in range(yoloNet.layer_number):
+    for i in range(25):#yoloNet.layer_number):
         l = yoloNet.layers[i]
         if(l.type == 'CONVOLUTIONAL'):
             weight_array = l.weights
@@ -255,8 +261,8 @@ def loadModel(weightFile):
         weights = model.layers[i].get_weights()
         if not weights is None and len(weights) > 0:
             print weights[0].shape, weights[0].max(), weights[0].min()
-            if len(weights) > 1 and i == 79:
-                # print weights[1].shape, weights[1].max(), weights[1].min()
+            if len(weights) > 1:
+                print weights[0].shape, weights[0].max(), weights[0].min()
                 print "layer: %d" % (i)
                 # w = weights[0].transpose()
                 # w = weights[1]
