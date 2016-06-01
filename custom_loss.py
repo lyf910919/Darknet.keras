@@ -105,27 +105,29 @@ def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale, coord_scale
         # box loss (batch_size, grid_num)
         # normalize x and y of box
         grid_boxes = grid_boxes[:,:,range(coords)*box_num].reshape((batch_size, grid_num, box_num, coords))
-        grid_boxes_n = T.concatenate([grid_boxes[:,:,:,:2]/side, T.sqrt(grid_boxes[:,:,:,2:])], axis=-1) #w,h sqare root
+        grid_boxes_n = T.concatenate([grid_boxes[:,:,:,:2]/side, grid_boxes[:,:,:,2:]], axis=-1) #normalize x,y
         pred_boxes = pred_boxes.reshape((batch_size, grid_num, box_num, coords))
-        pred_boxes_n = T.concatenate([pred_boxes[:,:,:,:2]/side, pred_boxes[:,:,:,2:]], axis=-1) #w,h sqare root
+        pred_boxes_n = T.concatenate([pred_boxes[:,:,:,:2]/side, pred_boxes[:,:,:,2:]**2], axis=-1) #normalize x,y, square w,h
         # get box mask
         # mask_iou = get_box_mask_iou(grid_boxes_n, pred_boxes_n)
         mask = get_box_mask_final(grid_boxes_n, pred_boxes_n)
         # get box loss (batch_size, grid_num)
-        box_loss = coord_scale * (T.pow(pred_boxes_n-grid_boxes_n, 2) * mask)
+        grid_boxes = T.concatenate([grid_boxes[:,:,:,:2], T.sqrt(grid_boxes[:,:,:,2:])], axis=-1) # square root true w,h
+        box_loss = coord_scale * (T.pow(pred_boxes-grid_boxes, 2) * mask)
         box_loss = box_loss.sum(axis=-1)
         box_loss = box_loss * grid_objectness # only calc grids that contain obj
         box_loss = box_loss.sum(axis=-1)
         
         # obj loss (batch_size, grid_num)
         mask = mask.reshape((mask.shape[0], mask.shape[1], mask.shape[2]*mask.shape[3]))
-        obj_loss = obj_scale * T.pow(grid_objectness_mul-pred_objectness, 2) * mask \
+        obj_loss = obj_scale * T.pow(pred_objectness-grid_objectness_mul, 2) * mask \
         - noobj_scale * T.pow(pred_objectness, 2) * mask # delete the noobj loss calc before for obj boxes
         obj_loss = obj_loss * grid_objectness # only calc grids that contain obj
         obj_loss = obj_loss.sum(axis=2)
         loss = noobj_loss+class_loss+box_loss+obj_loss
         loss = loss.sum() / batch_size # batch normalize the loss
         return loss
+        # return [noobj_loss.sum(), class_loss.sum(), box_loss.sum(), obj_loss.sum(), grid_objectness, pred_objectness, loss]
     return custom_loss
     
 if __name__ == '__main__':

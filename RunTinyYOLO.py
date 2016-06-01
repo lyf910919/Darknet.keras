@@ -3,7 +3,7 @@ import numpy as np
 
 from utils.readImgFile import readImg
 from utils.TinyYoloNet import ReadTinyYOLONetWeights
-from utils.DarkNet import ReadDarkNetWeights
+from utils.DarkNet import ReadDarkNetWeights, DarkNet
 from utils.crop import crop
 
 from keras.models import Sequential
@@ -15,6 +15,7 @@ from keras import backend as K
 
 from math import pow
 import theano
+import theano.tensor as T
 
 from PIL import Image
 from PIL import ImageDraw
@@ -25,6 +26,9 @@ from utils.timer import Timer
 
 import cv2
 from matplotlib import pyplot as plt
+
+from custom_loss import get_custom_loss
+from data_generator import fill_truth
 
 class box:
     def __init__(self,classes):
@@ -40,7 +44,11 @@ def SimpleNet(yoloNet):
 
     #Convolution Layer 2 & Max Pooling Layer 3
     # model.add(ZeroPadding2D(padding=(1,1),input_shape=(3,448,448)))
-    model.add(Convolution2D(64, 7, 7, input_shape=(3,448,448), weights=[yoloNet.layers[1].weights,yoloNet.layers[1].biases],border_mode='same',subsample=(2,2)))
+    l = yoloNet.layers[1]
+    if l.weights is None or l.biases is None:
+        model.add(Convolution2D(64, 7, 7, input_shape=(3,448,448), init='he_uniform', border_mode='same',subsample=(2,2)))
+    else:
+        model.add(Convolution2D(64, 7, 7, input_shape=(3,448,448), weights=[yoloNet.layers[1].weights,yoloNet.layers[1].biases],border_mode='same',subsample=(2,2)))
     model.add(LeakyReLU(alpha=0.1))
     model.add(MaxPooling2D(pool_size=(2, 2)))
     layer_cnt = 3
@@ -56,7 +64,7 @@ def SimpleNet(yoloNet):
                 sub = (2,2)
             model.add(ZeroPadding2D(padding=(l.size//2,l.size//2,)))
             if l.weights is None or l.biases is None:
-                model.add(Convolution2D(l.n, l.size, l.size, init='he_normal', border_mode='valid',subsample=sub))
+                model.add(Convolution2D(l.n, l.size, l.size, init='he_uniform', border_mode='valid',subsample=sub))
             else:
                 model.add(Convolution2D(l.n, l.size, l.size, weights=[l.weights,l.biases],border_mode='valid',subsample=sub))
             model.add(LeakyReLU(alpha=0.1))
@@ -70,7 +78,7 @@ def SimpleNet(yoloNet):
         elif(l.type == "CONNECTED"):
             # print l.input_size, l.output_size, l.weights.shape, l.biases.shape
             if l.weights is None or l.biases is None:
-                model.add(Dense(l.output_size, init='he_normal'))
+                model.add(Dense(l.output_size, init='he_uniform'))
             else:
                 model.add(Dense(l.output_size, weights=[l.weights,l.biases]))
             layer_cnt += 1
@@ -120,7 +128,7 @@ def convert_yolo_detections(predictions,classes=1,num=2,square=True,side=11,w=44
                 prob = scale*predictions[class_index+j]
                 if(prob > threshold):
                     new_box.probs[j] = prob
-                    print new_box.x, new_box.y, new_box.w, new_box.h, new_box.probs[0]
+                    # print new_box.x, new_box.y, new_box.w, new_box.h, new_box.probs[0]
                 else:
                     new_box.probs[j] = 0
             if(only_objectness):
@@ -230,9 +238,9 @@ def drawRects(src, rects):
     cv2.waitKey(0)
             
 def loadModel(weightFile):
-    yoloNet = ReadDarkNetWeights(weightFile, 25)
+    yoloNet = ReadDarkNetWeights(weightFile, 34)#25)
     #reshape weights in every layer
-    for i in range(25):#yoloNet.layer_number):
+    for i in range(yoloNet.layer_number):
         l = yoloNet.layers[i]
         if(l.type == 'CONVOLUTIONAL'):
             weight_array = l.weights
@@ -254,7 +262,7 @@ def loadModel(weightFile):
     timer = Timer()
     timer.tic()
     model.compile(optimizer=sgd, loss='categorical_crossentropy')
-    f = open("weights.txt", "w")
+    # f = open("weights.txt", "w")
     for i in xrange(len(model.layers)):
         print model.layers[i]
         print model.layers[i].input_shape, model.layers[i].output_shape
@@ -277,9 +285,43 @@ def loadModel(weightFile):
                 # weights = model.layers[4].get_weights()[0]
                 # weights = weights[0]
                 # vis_square(weights.reshape((weights.shape[0]*weights.shape[1], weights.shape[2], weights.shape[3])))
-    f.close()
+    # f.close()
     timer.toc()
     print 'Total compile time is {:.3f}s'.format(timer.total_time)
+    return model
+    
+def load_model_h5(weight_file):
+    darknet = DarkNet()
+    model = SimpleNet(darknet)
+    model.load_weights(weight_file)
+    sgd = SGD(lr=0.1, decay=1e-6, momentum=0.9, nesterov=True)
+    timer = Timer()
+    timer.tic()
+    model.compile(optimizer=sgd, loss='categorical_crossentropy')
+    timer.toc()
+    print 'Total compile time is {:.3f}s'.format(timer.total_time)
+    for i in xrange(len(model.layers)):
+        print model.layers[i]
+        print model.layers[i].input_shape, model.layers[i].output_shape
+        weights = model.layers[i].get_weights()
+        if not weights is None and len(weights) > 0:
+            print weights[0].shape, weights[0].max(), weights[0].min()
+            # if len(weights) > 1:
+            #     # print weights[0].shape, weights[0].max(), weights[0].min()
+            #     # print "layer: %d" % (i)
+            #     # w = weights[0].transpose()
+            #     # w = weights[1]
+            #     # print w.shape
+            #     # cnt = 0
+            #     # for val in w.flatten():
+            #     # #     print >> f, val
+            #     #     print 'weights[1]', cnt, ':', val
+            #     #     cnt += 1
+            #     #     raw_input()
+            #     # print model.layers[4].get_weights()[0].shape, model.layers[4].get_weights()[1].shape
+            #     # weights = model.layers[4].get_weights()[0]
+            #     weights = weights[0]
+            #     vis_square(weights.reshape((weights.shape[0]*weights.shape[1], weights.shape[2], weights.shape[3])))
     return model
     
 def detect(model, image):
@@ -292,7 +334,7 @@ def detect(model, image):
     data = data * 2.0 - 1.0
     # print data
     out = model.predict(data)
-    # print out
+    # print out[121:363]
     timer.toc()
     print ('Total detection time is {:.3f}s ').format(timer.total_time)
     
@@ -311,15 +353,15 @@ def detect(model, image):
     
     # for layer in [0,4,8,11,14,17,21,24,27,30,33,36,39,42,45,48,\
     # 52,55,58,61,64,67,70,73,76,79]:
-        
-    #     if layer == 79:
-    #         layer_output = get_activations(model, layer, data)[0]
-    #         print layer_output.shape, layer_output.min(), layer_output.max(), layer_output.mean()
-    #         cnt = 0
-    #         for val in layer_output.flatten():
-    #             print cnt, ':', val
-    #             raw_input()
-    #             cnt += 1
+    #     layer_output = get_activations(model, layer, data)[0]
+    #     # if layer == 79:
+    #     #     layer_output = get_activations(model, layer, data)[0]
+    #     #     print layer_output.shape, layer_output.min(), layer_output.max(), layer_output.mean()
+    #     #     cnt = 0
+    #     #     for val in layer_output.flatten():
+    #     #         print cnt, ':', val
+    #     #         raw_input()
+    #     #         cnt += 1
     #     if len(layer_output.shape) < 4:
     #         continue
     #     # print sum(layer_output[0,:,0,0])
@@ -330,11 +372,15 @@ def detect(model, image):
     #             layer_output.shape[2], layer_output.shape[3]))
     
     predictions = out[0]
-    # print predictions
+    # return out
+    
+    # print predictions[363:700]
     boxes = convert_yolo_detections(predictions, \
-        classes=1,num=2,square=True,side=11,w=448,h=448,threshold=0.2,only_objectness=0)
+        classes=1,num=2,square=True,side=11,w=448,h=448,threshold=0.01,only_objectness=0)
+    print 'boxes length:', len(boxes)
+    print 'max prob:', max([box.probs for box in boxes])
     boxes = do_nms_sort(boxes,len(boxes))
-    rects = [map(int,[box.x, box.y, box.w, box.h])+[box.probs[0]] for box in boxes if box.probs[0] > 0.2]
+    rects = [map(int,[box.x, box.y, box.w, box.h])+[box.probs[0]] for box in boxes if box.probs[0] > 0.3]
     # print rects[:4]
     drawRects(image, rects)
     # draw_detections(os.path.join(imagePath,image_name),98,0.2,boxes,20,labels,image_name)
@@ -365,44 +411,31 @@ def vis_square(data):
 def main():
     #image = readImg(os.path.join(os.getcwd(),'images/Yolo_dog.img'),h=448,w=448)
     labels = ["traffic_light"]
-    model = loadModel('/home/lyf/develop/traffic_light/backup/yolo-tl_82000.weights')
+    model = load_model_h5('weights.hdf5')
+    # model = loadModel('/home/lyf/develop/traffic_light/backup/yolo-tl_82000.weights')
     test_list_file = '/home/lyf/develop/traffic_light/croplabel448test_list.txt'
     with open(test_list_file, 'r') as f:
         lines = [line.strip() for line in f.readlines()]
-    ps = []
+    # batch_size = 1
+    # custom_loss = get_custom_loss(batch_size, 0.02, 0.5, 0.1, 1)
+    # y_true_t, y_pred_t = T.matrix(), T.matrix()
+    # loss = custom_loss(y_true_t, y_pred_t)
+    # f = theano.function([y_true_t, y_pred_t], [loss[0], loss[1], loss[2], loss[3], loss[4], loss[5], loss[6]])
+    # print 'function compiling done'
     for line in lines:
         image = cv2.imread(line, cv2.IMREAD_COLOR)
+        # y_true = fill_truth(line, 1, 11)
+        # y_true = np.expand_dims(y_true, axis=0)
+        # print 'y_true', y_true.shape
         # image = crop(line, resize_width=512,resize_height=512,new_width=448,new_height=448)
         # image = np.expand_dims(image, axis=0)
         predictions = detect(model, image)
-        # ps.append(predictions)
-        # if len(ps) >= 2:
-        #     for p in ps:
-        #         plt.plot(p)
-        #     plt.show()
-        
-'''
-image = readImg(os.path.join(os.getcwd(),'Yolo_dog.img'),h=448,w=448)
-image = np.expand_dims(image, axis=0)
-out = model.predict(image)
-predictions = out[0]
-boxes = convert_yolo_detections(predictions)
-boxes = do_nms_sort(boxes,98)
-
-for i in range(98):
-    for j in range(20):
-        if(boxes[i].probs[j] != 0):
-            print i,j
-            print boxes[i].probs[j]
-draw_detections(os.path.join(os.getcwd(),'images/dog.jpg'),98,0.2,boxes,20,labels,'dog.jpg')
-'''
-#for each image, we generate a detection result
-# imagePath = os.path.join(os.getcwd(),'images')
-# images = [f for f in listdir(imagePath) if isfile(join(imagePath, f))]
-# for image_name in images:
-#     timer = Timer()
-#     image = crop(os.path.join(imagePath,image_name),resize_width=512,resize_height=512,new_width=448,new_height=448)
-#     image = np.expand_dims(image, axis=0)
+        # print 'predictions', predictions.shape
+        # with open('loss_output.txt', 'w') as file1:
+        #     for l in f(y_true.astype(np.float32), predictions.astype(np.float32)):
+        #         print >> file1, l
+        # cv2.imshow('image', image)
+        # cv2.waitKey(0)
 
 if __name__ == '__main__':
     main()

@@ -3,3 +3,8 @@
 *.jpg
 *.png
 *.weights
+*.h5
+*.hdf5
+*.ipynb
+.ipynb_checkpoints/
+*.html
