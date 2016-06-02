@@ -111,6 +111,7 @@ def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale, coord_scale
         # get box mask
         # mask_iou = get_box_mask_iou(grid_boxes_n, pred_boxes_n)
         mask = get_box_mask_final(grid_boxes_n, pred_boxes_n)
+        iou = getIoU(grid_boxes_n, pred_boxes_n)
         # get box loss (batch_size, grid_num)
         grid_boxes = T.concatenate([grid_boxes[:,:,:,:2], T.sqrt(grid_boxes[:,:,:,2:])], axis=-1) # square root true w,h
         box_loss = coord_scale * (T.pow(pred_boxes-grid_boxes, 2) * mask)
@@ -120,7 +121,10 @@ def get_custom_loss(batch_size, noobj_scale, obj_scale, class_scale, coord_scale
         
         # obj loss (batch_size, grid_num)
         mask = mask.reshape((mask.shape[0], mask.shape[1], mask.shape[2]*mask.shape[3]))
-        obj_loss = obj_scale * T.pow(pred_objectness-grid_objectness_mul, 2) * mask \
+        # obj_loss = obj_scale * T.pow(pred_objectness-grid_objectness_mul, 2) * mask \
+        # - noobj_scale * T.pow(pred_objectness, 2) * mask # delete the noobj loss calc before for obj boxes
+        # rescore
+        obj_loss = obj_scale * T.pow(pred_objectness-iou, 2) * mask \
         - noobj_scale * T.pow(pred_objectness, 2) * mask # delete the noobj loss calc before for obj boxes
         obj_loss = obj_loss * grid_objectness # only calc grids that contain obj
         obj_loss = obj_loss.sum(axis=2)

@@ -1,4 +1,4 @@
-from RunTinyYOLO import *
+from model_loader import load_DAG_model, init_model
 from custom_loss import get_custom_loss
 from data_generator import generate_batch_data
 import time
@@ -6,6 +6,7 @@ import theano
 import os
 from keras.callbacks import ModelCheckpoint, LearningRateScheduler, Callback
 from keras import backend as K
+from keras.optimizers import SGD
     
 class LossHistory(Callback):
     def __init__(self, loss_file):
@@ -16,7 +17,7 @@ class LossHistory(Callback):
     def on_batch_end(self, batch, logs={}):
         self.losses.append(logs.get('loss'))
         if batch % 1000 == 0:
-            f = open(self.loss_file, 'w')
+            f = open(self.loss_file, 'w+')
             for loss in self.losses:
                 print >> f, loss
             f.close()
@@ -60,33 +61,19 @@ def schedule(epoch):
 
 def main():
     # weightFile = '/home/lyf/develop/traffic_light/backup/yolo-tl_82000.weights'
-    weightFile = '/home/lyf/develop/darknet/extraction.conv.weights'
-    yoloNet = ReadDarkNetWeights(weightFile, 25)
-    #reshape weights in every layer
-    for i in range(25): #yoloNet.layer_number):
-        l = yoloNet.layers[i]
-        if(l.type == 'CONVOLUTIONAL'):
-            weight_array = l.weights
-            n = weight_array.shape[0]
-            weight_array = weight_array.reshape((n//(l.size*l.size),(l.size*l.size)))[:,::-1].reshape((n,))
-            weight_array = np.reshape(weight_array,[l.n,l.c,l.size,l.size])
-            l.weights = weight_array
-        if(l.type == 'CONNECTED'):
-            weight_array = l.weights
-            # weight_array = np.reshape(weight_array,[l.input_size,l.output_size])
-            weight_array = np.reshape(weight_array,[l.output_size,l.input_size])
-            weight_array = weight_array.transpose()
-            print weight_array.shape
-            l.weights = weight_array
-    batch_size = 8
-    model = SimpleNet(yoloNet)
+    # weightFile = '/home/lyf/develop/darknet/extraction.conv.weights'
+    weightFile = 'weights/weights_4_20000.h5'
+    model = load_DAG_model(weightFile)
+    # model = init_model(weightFile, 25)
+    batch_size = 4
     sgd = SGD(lr=0.0001, decay=1e-6, momentum=0.9, nesterov=True)
     custom_loss = get_custom_loss(batch_size, noobj_scale=0.01, obj_scale=1, class_scale=0.01, coord_scale=5)
     model.compile(optimizer=sgd, loss=custom_loss)
     print 'compile done'
     
     folder = '/home/lyf/develop/traffic_light/crops448/'
-    img_list_file = '/home/lyf/develop/traffic_light/croplabel448_train_list.txt'
+    # img_list_file = '/home/lyf/develop/traffic_light/croplabel448_train_list.txt'
+    img_list_file = '/home/lyf/develop/traffic_light/croplabel448_list.txt'
     # f = theano.function([], [])
     # for X, y in generate_batch_data(folder, img_list_file, batch_size):
     #     pred = model.predict(X)[0]
@@ -94,11 +81,11 @@ def main():
     #     print pred.max(), pred.min(), pred.mean()
     #     break
     history = LossHistory('loss.txt')
-    save = SaveWeights('weights/weights')
+    save = SaveWeights('weights/weights0602')
     checkpointer = ModelCheckpoint(filepath='weights/weights.hdf5', verbose=1)
     # scheduler = LearningRateScheduler(schedule)
-    batch_point = [0, 20, 100, 200, 1000, 10000, 20000, 30000, 40000]
-    lr = [0.000005, 0.00001, 0.00002, 0.00005, 0.0001, 0.0002, 0.0005, 0.0001, 0.0001]
+    batch_point = [0, 40000, 80000, 120000]#, 40, 80, 120, 200, 5000, 10000, 20000, 40000, 60000, 100000]
+    lr = [0.001, 0.0005, 0.0002, 0.0001]#0.000005, 0.00001, 0.00002, 0.00005, 0.0001, 0.0002, 0.0005, 0.001, 0.0005, 0.0002, 0.0001]
     scheduler = LrScheduler(batch_point, lr)
     model.fit_generator(generate_batch_data(folder, img_list_file, batch_size), 
     	samples_per_epoch=140000, nb_epoch=50, callbacks=[history, checkpointer, scheduler, save])

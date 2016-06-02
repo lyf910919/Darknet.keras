@@ -379,8 +379,8 @@ def detect(model, image):
         classes=1,num=2,square=True,side=11,w=448,h=448,threshold=0.01,only_objectness=0)
     print 'boxes length:', len(boxes)
     print 'max prob:', max([box.probs for box in boxes])
-    boxes = do_nms_sort(boxes,len(boxes))
-    rects = [map(int,[box.x, box.y, box.w, box.h])+[box.probs[0]] for box in boxes if box.probs[0] > 0.3]
+    boxes = do_nms_sort(boxes,len(boxes),thresh=0.1)
+    rects = [map(int,[box.x, box.y, box.w, box.h])+[box.probs[0]] for box in boxes if box.probs[0] > 0.2]
     # print rects[:4]
     drawRects(image, rects)
     # draw_detections(os.path.join(imagePath,image_name),98,0.2,boxes,20,labels,image_name)
@@ -411,7 +411,7 @@ def vis_square(data):
 def main():
     #image = readImg(os.path.join(os.getcwd(),'images/Yolo_dog.img'),h=448,w=448)
     labels = ["traffic_light"]
-    model = load_model_h5('weights.hdf5')
+    model = load_model_h5('weights/weights.hdf5')
     # model = loadModel('/home/lyf/develop/traffic_light/backup/yolo-tl_82000.weights')
     test_list_file = '/home/lyf/develop/traffic_light/croplabel448test_list.txt'
     with open(test_list_file, 'r') as f:
